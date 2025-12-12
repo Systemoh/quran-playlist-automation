@@ -1,0 +1,28 @@
+name: Daily Quran Playlist Update
+
+on:
+  schedule:
+    - cron: "0 6 * * *"   # daily at 06:00 UTC
+  workflow_dispatch:
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install google-api-python-client google-auth
+
+      - name: Run script
+        env:
+          PLAYLIST_ID: ${{ secrets.PLAYLIST_ID }}
+          TOKEN_JSON: ${{ secrets.TOKEN_JSON }}
+        run: |
+          python add_to_playlist.py
