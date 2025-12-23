@@ -2,7 +2,7 @@ name: Daily Quran Playlist Update
 
 on:
   schedule:
-    - cron: "0 6 * * *"
+    - cron: "0 6 * * *"   # daily at 06:00 UTC
   workflow_dispatch:
 
 jobs:
@@ -21,13 +21,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install google-api-python-client google-auth google-auth-oauthlib
 
-  - name: Restore token.json
-  shell: bash
-  run: |
-    echo "${{ secrets.YT_TOKEN_B64 }}" | tr -d '\r\n' | base64 --decode > token.json
-    test -s token.json
-    head -c 1 token.json | cat
-
+      - name: Restore token.json
+        shell: bash
+        run: |
+          echo "${{ secrets.YT_TOKEN_B64 }}" | tr -d '\n' | base64 --decode > token.json
+          test -s token.json
 
       - name: Run script
         env:
