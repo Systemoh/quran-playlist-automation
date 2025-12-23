@@ -11,13 +11,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
-   - name: Restore token.json
+  - name: Restore token.json
   shell: bash
   run: |
-    echo "${{ secrets.YT_TOKEN_B64 }}" | tr -d '\r\n' | base64 --decode > token.json
+    echo "${{ secrets.YT_TOKEN_B64 }}" | tr -d '\n\r' | base64 --decode > token.json
     test -s token.json
-    python -c "import json; json.load(open('token.json','r',encoding='utf-8')); print('token.json OK')"
-
 
 
       - name: Set up Python
