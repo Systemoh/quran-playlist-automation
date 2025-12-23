@@ -21,11 +21,13 @@ jobs:
           python -m pip install --upgrade pip
           pip install google-api-python-client google-auth google-auth-oauthlib
 
-      - name: Restore token.json
-        shell: bash
-        run: |
-          echo "${{ secrets.YT_TOKEN_B64 }}" | tr -d '\n\r' | base64 --decode > token.json
-          test -s token.json
+  - name: Restore token.json
+  shell: bash
+  run: |
+    echo "${{ secrets.YT_TOKEN_B64 }}" | tr -d '\r\n' | base64 --decode > token.json
+    test -s token.json
+    head -c 1 token.json | cat
+
 
       - name: Run script
         env:
