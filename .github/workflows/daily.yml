@@ -30,8 +30,9 @@ jobs:
           test -s token.json
           echo "token.json restored OK"
 
-      - name: Run script
-        env:
-          PLAYLIST_ID: ${{ secrets.PLAYLIST_ID }}
-        run: |
-          python add_to_playlist.py
+    - name: Run script
+  env:
+    TOKEN_JSON: ${{ secrets.TOKEN_JSON }}
+    PLAYLIST_ID: ${{ secrets.PLAYLIST_ID }}
+  run: |
+    python add_to_playlist.py
