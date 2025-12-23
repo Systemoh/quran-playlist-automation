@@ -8,6 +8,7 @@ Goal:
 - NO downloading (no yt-dlp)
 - NO uploading (no ffmpeg)
 """
+print("=== VERSION CHECK: token.json script ===")
 
 import os
 from typing import List, Dict, Tuple
