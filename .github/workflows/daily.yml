@@ -25,7 +25,7 @@ jobs:
       - name: Restore token.json
         run: |
           echo "${{ secrets.YT_TOKEN_B64 }}" | tr -d '\n' | base64 --decode > token.json
-          python -c "import json; print('TOKEN SCOPES:', json.load(open('token.json')).get('scopes'))"
+          python -c "import json; json.load(open('token.json')); print('✅ token.json OK')"
 
       - name: PROOF - show if script contains TOKEN_JSON
         run: |
