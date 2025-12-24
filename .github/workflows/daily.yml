@@ -23,16 +23,13 @@ jobs:
           python -m pip install --upgrade pip
           pip install google-api-python-client google-auth google-auth-oauthlib
 
-      - name: Restore token.json
-        shell: bash
-        run: |
-          echo "${{ secrets.YT_TOKEN_B64 }}" | tr -d '\n' | base64 --decode > token.json
-          test -s token.json
-          echo "token.json restored OK"
+  - name: Restore token.json
+  run: |
+    echo "${{ secrets.YT_TOKEN_B64 }}" | tr -d '\n' | base64 --decode > token.json
+    python -c "import json; print('TOKEN SCOPES:', json.load(open('token.json')).get('scopes'))"
 
-    - name: Run script
+- name: Run script
   env:
-    TOKEN_JSON: ${{ secrets.TOKEN_JSON }}
     PLAYLIST_ID: ${{ secrets.PLAYLIST_ID }}
   run: |
     python add_to_playlist.py
