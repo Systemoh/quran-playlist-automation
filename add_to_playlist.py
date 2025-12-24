@@ -1,13 +1,40 @@
 import os
-from typing import List, Dict, Tuple
+import random
+import re
+from typing import List, Optional, Dict, Any
+
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 
+
+# =========================
+# CONFIG (edit if you want)
+# =========================
+
 SCOPES = ["https://www.googleapis.com/auth/youtube.force-ssl"]
 
-PLAYLIST_ID = os.getenv("PLAYLIST_ID")
+# Minimum duration to accept (minutes)
+MIN_DURATION_MINUTES = 15
 
+# Search pool: we try multiple queries and multiple candidates
+MAX_SEARCH_RESULTS = 20
+MAX_CANDIDATES_TO_CHECK = 25
+
+# Avoid these words in titles (typical low-quality / shorts / edits)
+BAD_TITLE_PATTERNS = [
+    r"\bshorts?\b",
+    r"#shorts?",
+    r"\btiktok\b",
+    r"\breels?\b",
+    r"\bedited\b",
+    r"\bspeed\s*up\b",
+    r"\bslowed\b",
+    r"\bmeme\b",
+]
+
+# Prefer these reciters (must match title or channel)
 RECITERS = [
     "Abdul Rahman Al-Sudais",
     "Mishary Rashid Alafasy",
@@ -15,147 +42,212 @@ RECITERS = [
     "Saad Al Ghamdi",
 ]
 
+# Topics you want (add/remove)
 TOPICS = [
-    "quran recitation",
-    "surah al rahman",
-    "surah yasin",
-    "surah al kahf",
+    "Surah Al-Kahf",
+    "Surah Yasin",
+    "Surah Al-Mulk",
+    "Surah Ar-Rahman",
+    "Surah Al-Baqarah",
+    "Surah Al-Kahf Friday",
+    "Quran recitation",
 ]
 
-BROAD_QUERIES = [
-    "quran recitation",
-    "quran recitation beautiful voice",
-    "surah yasin recitation",
-    "surah al kahf recitation",
-]
+# Optional: add Arabic keywords to improve “proper recitation” results
+AR_KEYWORDS = ["سورة", "تلاوة", "القرآن", "الشيخ"]
 
-MAX_TO_ADD = 3
 
-def get_youtube():
+# =========================
+# Helpers
+# =========================
+
+def load_youtube_client() -> Any:
+    if not os.path.exists("token.json"):
+        raise FileNotFoundError("token.json not found. GitHub Actions must restore it before running this script.")
+
     creds = Credentials.from_authorized_user_file("token.json", SCOPES)
+
+    # Refresh if expired
     if creds and creds.expired and creds.refresh_token:
         creds.refresh(Request())
-        with open("token.json", "w", encoding="utf-8") as f:
-            f.write(creds.to_json())
+
     return build("youtube", "v3", credentials=creds)
 
-def playlist_contains(youtube, video_id: str) -> bool:
+
+def iso8601_to_seconds(duration: str) -> int:
+    """
+    Convert ISO8601 duration like PT24M47S into seconds.
+    """
+    # PT#H#M#S
+    m = re.match(r"^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$", duration)
+    if not m:
+        return 0
+    h = int(m.group(1) or 0)
+    mm = int(m.group(2) or 0)
+    s = int(m.group(3) or 0)
+    return h * 3600 + mm * 60 + s
+
+
+def title_is_bad(title: str) -> bool:
+    t = title.lower()
+    return any(re.search(pat, t, flags=re.IGNORECASE) for pat in BAD_TITLE_PATTERNS)
+
+
+def reciter_matches(title: str, channel_title: str) -> bool:
+    hay = f"{title} {channel_title}".lower()
+    return any(r.lower() in hay for r in RECITERS)
+
+
+def playlist_contains_video(youtube: Any, playlist_id: str, video_id: str) -> bool:
     page_token = None
     while True:
         resp = youtube.playlistItems().list(
             part="contentDetails",
-            playlistId=PLAYLIST_ID,
+            playlistId=playlist_id,
             maxResults=50,
             pageToken=page_token
         ).execute()
 
         for item in resp.get("items", []):
-            if item["contentDetails"]["videoId"] == video_id:
+            if item.get("contentDetails", {}).get("videoId") == video_id:
                 return True
 
         page_token = resp.get("nextPageToken")
         if not page_token:
             return False
 
-def add_video_to_playlist(youtube, video_id: str):
-    resp = youtube.playlistItems().insert(
+
+def add_video_to_playlist(youtube: Any, playlist_id: str, video_id: str) -> None:
+    youtube.playlistItems().insert(
         part="snippet",
         body={
             "snippet": {
-                "playlistId": PLAYLIST_ID,
+                "playlistId": playlist_id,
                 "resourceId": {"kind": "youtube#video", "videoId": video_id},
             }
-        }
-    ).execute()
-    print(f"✅ Added: {video_id} | playlistItemId={resp.get('id')}")
-
-def search_videos(youtube, query: str, max_results: int = 25) -> Dict:
-    return youtube.search().list(
-        part="snippet",
-        q=query,
-        type="video",
-        maxResults=max_results
+        },
     ).execute()
 
-def collect_candidates(youtube, max_total: int = 120) -> List[Dict]:
+
+def search_candidates(youtube: Any, query: str) -> List[str]:
+    """
+    Search for videos and return a list of video IDs.
+    We use videoDuration=medium/long by doing two passes: long first, then medium.
+    """
+    video_ids: List[str] = []
+
+    # Pass 1: LONG (>20 mins)
+    for dur in ["long", "medium"]:
+        resp = youtube.search().list(
+            part="id,snippet",
+            q=query,
+            type="video",
+            maxResults=MAX_SEARCH_RESULTS,
+            order="relevance",
+            videoDuration=dur,
+            safeSearch="none",
+        ).execute()
+
+        for item in resp.get("items", []):
+            vid = item.get("id", {}).get("videoId")
+            if vid:
+                video_ids.append(vid)
+
+        if video_ids:
+            break
+
+    # De-dup while preserving order
     seen = set()
-    results: List[Dict] = []
+    out = []
+    for v in video_ids:
+        if v not in seen:
+            seen.add(v)
+            out.append(v)
+    return out
 
-    for q in BROAD_QUERIES:
-        resp = search_videos(youtube, q, max_results=25)
-        for it in resp.get("items", []):
-            vid = it.get("id", {}).get("videoId")
-            if not vid or vid in seen:
-                continue
-            seen.add(vid)
-            results.append(it)
-            if len(results) >= max_total:
-                return results
 
-    for r in RECITERS:
-        for t in TOPICS:
-            q = f"{r} {t}"
-            resp = search_videos(youtube, q, max_results=10)
-            for it in resp.get("items", []):
-                vid = it.get("id", {}).get("videoId")
-                if not vid or vid in seen:
-                    continue
-                seen.add(vid)
-                results.append(it)
-                if len(results) >= max_total:
-                    return results
+def fetch_video_details(youtube: Any, video_ids: List[str]) -> Dict[str, Dict[str, Any]]:
+    """
+    Returns dict: videoId -> details {title, channelTitle, duration, privacyStatus}
+    """
+    details: Dict[str, Dict[str, Any]] = {}
+    for i in range(0, len(video_ids), 50):
+        chunk = video_ids[i:i+50]
+        resp = youtube.videos().list(
+            part="snippet,contentDetails,status",
+            id=",".join(chunk)
+        ).execute()
 
-    return results
+        for item in resp.get("items", []):
+            vid = item.get("id")
+            snippet = item.get("snippet", {})
+            status = item.get("status", {})
+            cd = item.get("contentDetails", {})
 
-def score_item(item: Dict) -> int:
-    s = item.get("snippet", {})
-    title = (s.get("title") or "").lower()
-    channel = (s.get("channelTitle") or "").lower()
+            details[vid] = {
+                "title": snippet.get("title", ""),
+                "channelTitle": snippet.get("channelTitle", ""),
+                "duration": cd.get("duration", "PT0S"),
+                "privacyStatus": status.get("privacyStatus", ""),
+            }
 
-    score = 0
-    for r in RECITERS:
-        rl = r.lower()
-        if rl in title:
-            score += 5
-        if rl in channel:
-            score += 3
-    for t in TOPICS:
-        tl = t.lower()
-        if tl in title:
-            score += 2
-    return score
+    return details
 
-def pick_best_candidates(youtube, max_to_add: int) -> List[Tuple[int, Dict]]:
-    candidates = collect_candidates(youtube, max_total=120)
-    print(f"Collected {len(candidates)} candidates.")
 
-    ranked: List[Tuple[int, Dict]] = []
-    for item in candidates:
-        vid = item.get("id", {}).get("videoId")
-        if not vid:
+def pick_best_video(
+    youtube: Any,
+    playlist_id: str,
+    candidates: List[str]
+) -> Optional[str]:
+    """
+    Filter and pick a good video.
+    """
+    if not candidates:
+        return None
+
+    candidates = candidates[:MAX_CANDIDATES_TO_CHECK]
+    info_map = fetch_video_details(youtube, candidates)
+
+    min_seconds = MIN_DURATION_MINUTES * 60
+
+    for vid in candidates:
+        info = info_map.get(vid)
+        if not info:
             continue
-        if playlist_contains(youtube, vid):
+
+        title = info["title"]
+        channel = info["channelTitle"]
+        privacy = info["privacyStatus"]
+        seconds = iso8601_to_seconds(info["duration"])
+
+        # Skip private/unlisted/anything not public
+        if privacy != "public":
             continue
-        ranked.append((score_item(item), item))
 
-    ranked.sort(key=lambda x: x[0], reverse=True)
-    return ranked[:max_to_add]
+        # Skip too short
+        if seconds < min_seconds:
+            continue
 
-if __name__ == "__main__":
-    if not PLAYLIST_ID:
-        raise RuntimeError("PLAYLIST_ID is missing. Add it as a GitHub Secret and pass it via env.")
+        # Skip bad/shorts titles
+        if title_is_bad(title):
+            continue
 
-    youtube = get_youtube()
-    picks = pick_best_candidates(youtube, MAX_TO_ADD)
+        # Must match preferred reciters (to avoid random channels)
+        if not reciter_matches(title, channel):
+            continue
 
-    if not picks:
-        raise RuntimeError("No new videos found (all candidates already in playlist).")
+        # Avoid duplicates already in playlist
+        if playlist_contains_video(youtube, playlist_id, vid):
+            continue
 
-    for score, item in picks:
-        vid = item["id"]["videoId"]
-        title = item["snippet"]["title"]
-        channel = item["snippet"]["channelTitle"]
-        print(f"Selected (score={score}): {title} | {channel} | {vid}")
-        add_video_to_playlist(youtube, vid)
+        return vid
 
-    print("✅ Done.")
+    return None
+
+
+# =========================
+# Main
+# =========================
+
+def main() -> None:
+    playlist_id = os.environ.get("PLAYLIST_ID"
