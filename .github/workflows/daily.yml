@@ -2,13 +2,12 @@ name: Daily Quran Playlist Update
 
 on:
   schedule:
-    - cron: "0 6 * * *"   # daily 06:00 UTC (adjust if you want)
+    - cron: "0 6 * * *"   # daily 06:00 UTC
   workflow_dispatch:
 
 jobs:
   run:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -23,13 +22,20 @@ jobs:
           python -m pip install --upgrade pip
           pip install google-api-python-client google-auth google-auth-oauthlib
 
-  - name: Restore token.json
-  run: |
-    echo "${{ secrets.YT_TOKEN_B64 }}" | tr -d '\n' | base64 --decode > token.json
-    python -c "import json; print('TOKEN SCOPES:', json.load(open('token.json')).get('scopes'))"
+      - name: Restore token.json (and show scopes)
+        run: |
+          echo "${{ secrets.YT_TOKEN_B64 }}" | tr -d '\n' | base64 --decode > token.json
+          python -c "import json; print('TOKEN SCOPES:', json.load(open('token.json')).get('scopes'))"
 
-- name: Run script
-  env:
-    PLAYLIST_ID: ${{ secrets.PLAYLIST_ID }}
-  run: |
-    python add_to_playlist.py
+      - name: PROVE which script is running
+        run: |
+          echo "=== FIRST 30 LINES OF add_to_playlist.py ==="
+          sed -n '1,30p' add_to_playlist.py
+          echo "=== SEARCH TOKEN_JSON in add_to_playlist.py ==="
+          grep -n "TOKEN_JSON" add_to_playlist.py || echo "NO TOKEN_JSON FOUND"
+
+      - name: Run script
+        env:
+          PLAYLIST_ID: ${{ secrets.PLAYLIST_ID }}
+        run: |
+          python add_to_playlist.py
