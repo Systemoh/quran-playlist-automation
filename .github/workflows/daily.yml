@@ -27,16 +27,18 @@ jobs:
           echo "${{ secrets.YT_TOKEN_B64 }}" | tr -d '\n' | base64 --decode > token.json
           python -c "import json; json.load(open('token.json')); print('✅ token.json OK')"
 
-      - name: Show script line count (sanity check)
+      - name: Show script line counts (sanity check)
         run: |
-          echo "Lines in add_to_playlist.py:"; wc -l add_to_playlist.py
+          echo "Lines in run_playlist.py:"; wc -l run_playlist.py || true
+          echo "Lines in add_to_playlist.py:"; wc -l add_to_playlist.py || true
+          echo "Files:"; ls -la
 
       - name: Syntax check
         run: |
-          python -m py_compile add_to_playlist.py
+          python -m py_compile run_playlist.py
 
       - name: Run script
         env:
           PLAYLIST_ID: ${{ secrets.PLAYLIST_ID }}
         run: |
-          python add_to_playlist.py
+          python run_playlist.py
