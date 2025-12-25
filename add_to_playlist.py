@@ -167,18 +167,20 @@ def get_playlist_video_ids(youtube: Any, playlist_id: str) -> Set[str]:
 
 
 def add_video_to_playlist(youtube: Any, playlist_id: str, video_id: str) -> None:
-    youtube.playlistItems().insert(
+    request = youtube.playlistItems().insert(
         part="snippet",
         body={
             "snippet": {
                 "playlistId": playlist_id,
                 "resourceId": {
                     "kind": "youtube#video",
-                    "videoId": video_id
-                },
+                    "videoId": video_id,
+                }
             }
         }
-    ).execute()
+    )
+    request.execute()
+
 
 
 def search_candidates(youtube: Any) -> List[str]:
