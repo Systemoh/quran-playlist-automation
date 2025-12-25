@@ -1,0 +1,19 @@
+name: Daily Quran Playlist Update
+
+on:
+  workflow_dispatch:
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: DEBUG
+        shell: bash
+        run: |
+          echo "DEBUG OK"
+          echo "GITHUB_REF=$GITHUB_REF"
+          echo "GITHUB_SHA=$GITHUB_SHA"
+          git log -1 --oneline
