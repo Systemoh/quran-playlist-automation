@@ -18,19 +18,78 @@ MAX_SEARCH_RESULTS = 25          # results per search call
 MAX_CANDIDATES_TO_CHECK = 30     # cap to avoid long runs
 
 RECITERS = [
+    # Haramain / Saudi
     "Abdul Rahman Al-Sudais",
-    "Mishary Rashid Alafasy",
+    "Saud Al-Shuraim",
     "Maher Al Muaiqly",
+    "Abdullah Awad Al-Juhany",
+    "Yasser Al-Dosari",
+    "Bandar Baleela",
+
+    # Popular international
+    "Mishary Rashid Alafasy",
     "Saad Al Ghamdi",
+    "Abdul Basit Abdus Samad",
+    "Mahmoud Khalil Al-Husary",
+    "Mohamed Siddiq El Minshawi",
+    "Mustafa Ismail",
+    "Nasser Al Qatami",
+    "Ahmed Al Ajmi",
+    "Hani Ar-Rifai",
+    "Ali Jaber",
+
+    # Modern / younger audience
+    "Omar Hisham Al Arabi",
+    "Islam Sobhi",
+    "Hassan Saleh",
+    "Idris Abkar",
+    "Fares Abbad",
+
+    # Calm / slow style
+    "Salah Bukhatir",
+    "Muhammad Luhaidan",
+    "Abdullah Basfar",
 ]
+
 
 # Broad topics
 TOPICS = [
+    # General
     "quran recitation",
-    "surah al rahman",
-    "surah yasin",
+    "holy quran full recitation",
+    "beautiful quran recitation",
+    "quran tilawat",
+
+    # Long-form / night listening
+    "quran recitation for sleep",
+    "quran recitation for relaxation",
+    "calm quran recitation",
+    "slow quran recitation",
+
+    # Surah-based (high engagement)
+    "surah al baqarah",
     "surah al kahf",
+    "surah yasin",
+    "surah ar rahman",
+    "surah al waqiah",
+    "surah maryam",
+    "surah al mulk",
+    "surah al anbiya",
+
+    # Juz / structured
+    "juz amma recitation",
+    "juz tabarak recitation",
+
+    # Emotional / spiritual
+    "emotional quran recitation",
+    "beautiful voice quran",
+    "heart touching quran recitation",
+
+    # Ramadan / night prayers
+    "taraweeh recitation",
+    "qiyam ul layl recitation",
 ]
+
 
 # Avoid low-quality / shorts / edits
 BAD_TITLE_PATTERNS = [
