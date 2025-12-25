@@ -175,6 +175,10 @@ def add_video_to_playlist(youtube: Any, playlist_id: str, video_id: str) -> None
         body={
             "snippet": {
                 "playlistId": playlist_id,
-                "resourceId": {"kind": "youtube#video", "videoId": video_id},
+                "resourceId": {
+                    "kind": "youtube#video",
+                    "videoId": video_id
+                },
             }
-        },
+        }
+    ).execute()
