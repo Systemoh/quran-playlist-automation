@@ -1,286 +1,42 @@
-import os
-import random
-import re
-from typing import Any, Dict, List, Set
+name: Daily Quran Playlist Update
 
-from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError
-from google.oauth2.credentials import Credentials
-from google.auth.transport.requests import Request
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
 
-# =========================
-# CONFIG
-# =========================
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
-SCOPES = ["https://www.googleapis.com/auth/youtube.force-ssl"]
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
 
-# Minimum duration to accept (minutes)
-MIN_DURATION_MINUTES = 15
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install google-api-python-client google-auth google-auth-oauthlib
 
-# How many search results to consider
-MAX_SEARCH_RESULTS = 25
-MAX_CANDIDATES_TO_CHECK = 30
+      - name: Restore token.json
+        run: |
+          echo "${{ secrets.YT_TOKEN_B64 }}" | tr -d '\n' | base64 --decode > token.json
+          python -c "import json; json.load(open('token.json')); print('✅ token.json OK')"
 
-# Avoid these words in titles (typical low-quality / shorts / edits)
-BAD_TITLE_PATTERNS = [
-    r"\bshorts?\b",
-    r"#shorts?\b",
-    r"\btiktok\b",
-    r"\breels?\b",
-    r"\bedited\b",
-    r"\bspeed\s*up\b",
-    r"\bslowed\b",
-    r"\bmeme\b",
-    r"\bclip\b",
-    r"\bstatus\b",
-    r"\b1-?11\b",           # catches "1-11" style partial clip titles
-    r"\bpart\s*\d+\b",
-]
+      - name: Show script line count (sanity check)
+        run: |
+          echo "Lines in add_to_playlist.py:"; wc -l add_to_playlist.py
 
-# Expanded list of well-known reciters (spellings vary)
-RECITERS = [
-    # Saudi / Haramain
-    "Abdul Rahman Al-Sudais",
-    "Abdurrahman Al Sudais",
-    "Saud Al-Shuraim",
-    "Saud Al Shuraim",
-    "Maher Al Muaiqly",
-    "Maher Al-Muaiqly",
-    "Yasser Al-Dosari",
-    "Yasser Al Dosari",
-    "Abdullah Al-Juhany",
-    "Abdullah Al Juhany",
-    "Saleh Al Talib",
-    "Saleh Al-Talib",
-    "Bandar Balilah",
-    "Abdullah Basfar",
-    "Nasser Al Qatami",
+      - name: Syntax check
+        run: |
+          python -m py_compile add_to_playlist.py
 
-    # Popular worldwide
-    "Mishary Rashid Alafasy",
-    "Mishary Alafasy",
-    "Saad Al Ghamdi",
-    "Saad Al-Ghamdi",
-    "Abu Bakr Al-Shatri",
-    "Abu Bakr Al Shatri",
-    "Hani Ar-Rifai",
-    "Hani Al Rifai",
-    "Muhammad Ayyub",
-    "Mohammed Ayyub",
-    "Ali Jaber",
-    "Sheikh Ali Jaber",
-    "Idris Abkar",
-    "Minshawi",
-    "Al-Minshawi",
-    "Mahmoud Khalil Al-Husary",
-    "Al-Husary",
-    "Abdul Basit",
-    "AbdulBasit",
-    "Abdul Basit Abdus Samad",
-]
-
-# Topics / searches
-TOPICS = [
-    "Surah Al-Kahf",
-    "Surah Yasin",
-    "Surah Al-Mulk",
-    "Surah Ar-Rahman",
-    "Surah Al-Baqarah",
-    "Surah Al-Waqiah",
-    "Surah Al-Sajdah",
-    "Juz Amma Quran recitation",
-    "Quran recitation full",
-]
-
-# Optional Arabic keywords to improve “proper recitation” results
-AR_KEYWORDS = ["سورة", "تلاوة", "القرآن", "الشيخ", "قراءة"]
-
-
-# =========================
-# Helpers
-# =========================
-
-def load_youtube_client() -> Any:
-    """Load token.json and build YouTube client."""
-    if not os.path.exists("token.json"):
-        raise FileNotFoundError(
-            "token.json not found. GitHub Actions must restore it before running this script."
-        )
-
-    creds = Credentials.from_authorized_user_file("token.json", SCOPES)
-    if creds and creds.expired and creds.refresh_token:
-        creds.refresh(Request())
-
-    return build("youtube", "v3", credentials=creds)
-
-
-def iso8601_to_seconds(duration: str) -> int:
-    """Convert ISO8601 duration like PT1H2M3S to seconds."""
-    m = re.match(r"^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$", duration)
-    if not m:
-        return 0
-    h = int(m.group(1) or 0)
-    mm = int(m.group(2) or 0)
-    s = int(m.group(3) or 0)
-    return h * 3600 + mm * 60 + s
-
-
-def title_is_bad(title: str) -> bool:
-    return any(re.search(pat, title, flags=re.IGNORECASE) for pat in BAD_TITLE_PATTERNS)
-
-
-def reciter_matches(title: str, channel_title: str) -> bool:
-    hay = f"{title} {channel_title}".lower()
-
-    # Match full names
-    for r in RECITERS:
-        if r.lower() in hay:
-            return True
-
-    # Strong partials for spelling variations
-    partials = [
-        "sudais", "shuraim", "muaiqly", "dosari", "juhany", "talib",
-        "alafasy", "afasy", "ghamdi", "shatri", "rifai", "ayyub",
-        "ali jaber", "idris abkar", "minshawi", "husary", "abdul basit",
-        "qatami", "basfar", "balilah",
-    ]
-    return any(p in hay for p in partials)
-
-
-def get_playlist_video_ids(youtube: Any, playlist_id: str) -> Set[str]:
-    """Load all existing video IDs in the playlist (to prevent duplicates)."""
-    ids: Set[str] = set()
-    page_token = None
-
-    while True:
-        resp = youtube.playlistItems().list(
-            part="contentDetails",
-            playlistId=playlist_id,
-            maxResults=50,
-            pageToken=page_token,
-        ).execute()
-
-        for item in resp.get("items", []):
-            vid = (item.get("contentDetails") or {}).get("videoId")
-            if vid:
-                ids.add(vid)
-
-        page_token = resp.get("nextPageToken")
-        if not page_token:
-            break
-
-    return ids
-
-
-def add_video_to_playlist(youtube: Any, playlist_id: str, video_id: str) -> None:
-    """Insert video into playlist (safe: no chained execute)."""
-    req = youtube.playlistItems().insert(
-        part="snippet",
-        body={
-            "snippet": {
-                "playlistId": playlist_id,
-                "resourceId": {
-                    "kind": "youtube#video",
-                    "videoId": video_id,
-                },
-            }
-        },
-    )
-    req.execute()
-
-
-def search_candidates(youtube: Any) -> List[str]:
-    """Search YouTube and return candidate video IDs."""
-    q = random.choice(TOPICS)
-    if random.random() < 0.5:
-        q = f"{q} {random.choice(AR_KEYWORDS)}"
-
-    resp = youtube.search().list(
-        part="snippet",
-        q=q,
-        type="video",
-        maxResults=MAX_SEARCH_RESULTS,
-        safeSearch="strict",
-    ).execute()
-
-    out: List[str] = []
-    for item in resp.get("items", []):
-        vid = (item.get("id") or {}).get("videoId")
-        if vid:
-            out.append(vid)
-    return out
-
-
-def get_video_details(youtube: Any, video_id: str) -> Dict[str, Any]:
-    """Fetch snippet + duration for a video ID."""
-    resp = youtube.videos().list(
-        part="contentDetails,snippet",
-        id=video_id,
-    ).execute()
-
-    items = resp.get("items", [])
-    return items[0] if items else {}
-
-
-def is_good_video(video: Dict[str, Any]) -> bool:
-    snip = video.get("snippet", {}) or {}
-    cd = video.get("contentDetails", {}) or {}
-
-    title = snip.get("title", "") or ""
-    channel_title = snip.get("channelTitle", "") or ""
-    duration = cd.get("duration", "PT0S") or "PT0S"
-
-    if not title:
-        return False
-    if title_is_bad(title):
-        return False
-    if not reciter_matches(title, channel_title):
-        return False
-
-    seconds = iso8601_to_seconds(duration)
-    if seconds < MIN_DURATION_MINUTES * 60:
-        return False
-
-    return True
-
-
-def main() -> None:
-    playlist_id = (os.getenv("PLAYLIST_ID") or "").strip()
-    if not playlist_id:
-        raise ValueError("PLAYLIST_ID env var missing. Set it as a GitHub Secret and pass it in the workflow.")
-
-    youtube = load_youtube_client()
-
-    existing = get_playlist_video_ids(youtube, playlist_id)
-
-    candidates = search_candidates(youtube)
-    random.shuffle(candidates)
-
-    checked = 0
-    for vid in candidates:
-        if vid in existing:
-            continue
-
-        checked += 1
-        if checked > MAX_CANDIDATES_TO_CHECK:
-            break
-
-        video = get_video_details(youtube, vid)
-        if not video:
-            continue
-
-        if is_good_video(video):
-            title = (video.get("snippet") or {}).get("title", "")
-            add_video_to_playlist(youtube, playlist_id, vid)
-            print(f"✅ Added to playlist: {vid} | {title}")
-            return
-
-    print("⚠️ No suitable video found today (filtered/duplicates/short duration).")
-
-
-if __name__ == "__main__":
-    try:
-        main()
-    except HttpError as e:
-        print("❌ YouTube API error:", e)
-        raise
+      - name: Run script
+        env:
+          PLAYLIST_ID: ${{ secrets.PLAYLIST_ID }}
+        run: |
+          python add_to_playlist.py
