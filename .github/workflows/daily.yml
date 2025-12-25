@@ -31,13 +31,15 @@ jobs:
         run: |
           grep -n "TOKEN_JSON" add_to_playlist.py || echo "NO TOKEN_JSON FOUND"
           sed -n '1,40p' add_to_playlist.py
-      - name: DEBUG - show exact file being executed
+
+      - name: DEBUG - show exact lines around 173
         run: |
-          echo "PWD:"; pwd
-          echo "LIST:"; ls -la
-          echo "PATH OF SCRIPT:"; python -c "import os; print(os.path.abspath('add_to_playlist.py'))"
-          echo "----- add_to_playlist.py (lines 120-210) -----"
-          nl -ba add_to_playlist.py | sed -n '120,210p'
+          echo "----- add_to_playlist.py (lines 160-190) -----"
+          nl -ba add_to_playlist.py | sed -n '160,190p'
+
+      - name: Syntax check (fail fast with exact line)
+        run: |
+          python -m py_compile add_to_playlist.py
 
       - name: Run script
         env:
