@@ -1,19 +1,32 @@
 name: Daily Quran Playlist Update
 
 on:
+  schedule:
+    - cron: "0 6 * * *"
   workflow_dispatch:
 
 jobs:
   run:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: DEBUG
-        shell: bash
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
         run: |
-          echo "DEBUG OK"
-          echo "GITHUB_REF=$GITHUB_REF"
-          echo "GITHUB_SHA=$GITHUB_SHA"
-          git log -1 --oneline
+          python -m pip install --upgrade pip
+          pip install google-api-python-client google-auth google-auth-oauthlib
+
+      - name: Restore token.json
+        run: |
+          echo "${{ secrets.YT_TOKEN_B64 }}" | tr -d '\n' | base64 --decode > token.json
+          python -c "import json; json.load(open('token.json')); print('token OK')"
+
+      - name: Run script
+        env:
+          PLAYLIST_ID: ${{ secrets.PLAYLIST_ID }}
+        run: |
+          python run_playlist.py
