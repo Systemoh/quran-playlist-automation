@@ -9,15 +9,11 @@ jobs:
   run:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: DEBUG - show branch + commit
+      - name: DEBUG - list workflow + script
         shell: bash
         run: |
-          echo "GITHUB_REF=$GITHUB_REF"
-          echo "GITHUB_SHA=$GITHUB_SHA"
-          git log -1 --oneline
+          ls -la .github/workflows || true
+          ls -la
 
       - name: DEBUG - list workflow + script
         shell: bash
