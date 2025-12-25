@@ -16,6 +16,15 @@ jobs:
           echo "GITHUB_REF=$GITHUB_REF"
           echo "GITHUB_SHA=$GITHUB_SHA"
           git log -1 --oneline
+      - name: DEBUG - show branch + commit
+        run: |
+         echo "GITHUB_REF=$GITHUB_REF"
+         echo "GITHUB_SHA=$GITHUB_SHA"
+         git log -1 --oneline
+         - name: DEBUG - show workflow run command
+         run: |
+         grep -R "python " -n .github/workflows || true
+         ls -la
 
       - name: DEBUG - list workflow + script
         run: |
