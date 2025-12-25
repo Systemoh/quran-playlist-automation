@@ -1,5 +1,5 @@
 import os
-from typing import Any, Optional
+from typing import Any
 
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
@@ -8,7 +8,7 @@ from google.auth.transport.requests import Request
 
 SCOPES = ["https://www.googleapis.com/auth/youtube.force-ssl"]
 
-TEST_VIDEO_ID = "m3q8CjvK0i0"  # must be a public, accessible video
+TEST_VIDEO_ID = "m3q8CjvK0i0"  # change later if needed
 
 
 def load_youtube() -> Any:
@@ -24,7 +24,6 @@ def video_accessible(yt: Any, video_id: str) -> bool:
     if not items:
         return False
     status = items[0].get("status", {})
-    # public / unlisted are fine; private often not addable unless it’s yours
     if status.get("privacyStatus") == "private":
         return False
     return True
@@ -37,13 +36,15 @@ def main() -> None:
 
     yt = load_youtube()
 
-    # 1) Validate the video exists and is accessible
+    # PROVE which channel the token belongs to
+    me = yt.channels().list(part="snippet", mine=True).execute()
+    print("Authenticated channel:", me["items"][0]["snippet"]["title"])
+
+    # Validate video first (prevents hard-fail)
     if not video_accessible(yt, TEST_VIDEO_ID):
-        print(f"⚠️ Video not accessible or not found: {TEST_VIDEO_ID}")
-        # Don’t fail the whole workflow
+        print(f"⚠️ Skipping video (not found / not accessible): {TEST_VIDEO_ID}")
         return
 
-    # 2) Insert into playlist
     try:
         yt.playlistItems().insert(
             part="snippet",
@@ -56,7 +57,6 @@ def main() -> None:
         ).execute()
         print("✅ Added test video")
     except HttpError as e:
-        # Print clean error details without crashing blindly
         print("❌ YouTube API error while inserting into playlist.")
         print(e)
         raise
