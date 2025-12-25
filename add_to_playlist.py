@@ -1,7 +1,7 @@
 import os
 import random
 import re
-from typing import List, Optional, Dict, Any, Set
+from typing import Any, Set, List
 
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
@@ -131,12 +131,10 @@ def title_is_bad(title: str) -> bool:
 def reciter_matches(title: str, channel_title: str) -> bool:
     hay = f"{title} {channel_title}".lower()
 
-    # Match full names
     for r in RECITERS:
         if r.lower() in hay:
             return True
 
-    # Also match a few strong partials (to handle spelling variations)
     partials = [
         "sudais", "shuraim", "muaiqly", "dosari", "juhany", "talib",
         "alafasy", "afasy", "ghamdi", "shatri", "rifai", "ayyub",
@@ -147,7 +145,6 @@ def reciter_matches(title: str, channel_title: str) -> bool:
 
 
 def get_playlist_video_ids(youtube: Any, playlist_id: str) -> Set[str]:
-    """Load entire playlist videoIds once (prevents duplicates reliably)."""
     ids: Set[str] = set()
     page_token = None
     while True:
@@ -182,3 +179,102 @@ def add_video_to_playlist(youtube: Any, playlist_id: str, video_id: str) -> None
             }
         }
     ).execute()
+
+
+def search_candidates(youtube: Any) -> List[str]:
+    """Return a list of candidate videoIds (may include duplicates, filtered later)."""
+    q = random.choice(TOPICS)
+    # Add some Arabic keywords sometimes to bias results toward real recitations
+    if random.random() < 0.5:
+        q = f"{q} {random.choice(AR_KEYWORDS)}"
+
+    resp = youtube.search().list(
+        part="snippet",
+        q=q,
+        type="video",
+        maxResults=MAX_SEARCH_RESULTS,
+        videoEmbeddable="true",
+        safeSearch="strict"
+    ).execute()
+
+    ids: List[str] = []
+    for item in resp.get("items", []):
+        vid = (item.get("id") or {}).get("videoId")
+        if vid:
+            ids.append(vid)
+    return ids
+
+
+def get_video_details(youtube: Any, video_id: str) -> dict:
+    resp = youtube.videos().list(
+        part="contentDetails,snippet",
+        id=video_id
+    ).execute()
+    items = resp.get("items", [])
+    return items[0] if items else {}
+
+
+def is_good_video(video: dict) -> bool:
+    snip = video.get("snippet", {})
+    cd = video.get("contentDetails", {})
+    title = snip.get("title", "")
+    channel_title = snip.get("channelTitle", "")
+    duration = cd.get("duration", "PT0S")
+
+    if not title:
+        return False
+    if title_is_bad(title):
+        return False
+    if not reciter_matches(title, channel_title):
+        return False
+
+    seconds = iso8601_to_seconds(duration)
+    if seconds < MIN_DURATION_MINUTES * 60:
+        return False
+
+    return True
+
+
+def main() -> None:
+    playlist_id = os.getenv("PLAYLIST_ID", "").strip()
+    if not playlist_id:
+        raise ValueError("PLAYLIST_ID env var is missing. Add it as a GitHub Secret and pass it in workflow env.")
+
+    youtube = load_youtube_client()
+
+    # Load existing playlist IDs once
+    existing_ids = get_playlist_video_ids(youtube, playlist_id)
+
+    # Search + evaluate candidates
+    candidates = search_candidates(youtube)
+    random.shuffle(candidates)
+
+    checked = 0
+    for vid in candidates:
+        if vid in existing_ids:
+            continue
+
+        checked += 1
+        if checked > MAX_CANDIDATES_TO_CHECK:
+            break
+
+        video = get_video_details(youtube, vid)
+        if not video:
+            continue
+
+        if is_good_video(video):
+            add_video_to_playlist(youtube, playlist_id, vid)
+            title = (video.get("snippet") or {}).get("title", "")
+            print(f"✅ Added: {vid} | {title}")
+            return
+
+    print("⚠️ No suitable video found today (filtered or duplicates).")
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except HttpError as e:
+        # Show helpful API error message
+        print("YouTube API error:", e)
+        raise
