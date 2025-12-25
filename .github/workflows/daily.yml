@@ -11,27 +11,21 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
       - name: DEBUG - show branch + commit
+        shell: bash
         run: |
           echo "GITHUB_REF=$GITHUB_REF"
           echo "GITHUB_SHA=$GITHUB_SHA"
           git log -1 --oneline
-      - name: DEBUG - show branch + commit
-        run: |
-         echo "GITHUB_REF=$GITHUB_REF"
-         echo "GITHUB_SHA=$GITHUB_SHA"
-         git log -1 --oneline
-         - name: DEBUG - show workflow run command
-         run: |
-         grep -R "python " -n .github/workflows || true
-         ls -la
 
       - name: DEBUG - list workflow + script
+        shell: bash
         run: |
           ls -la .github/workflows || true
           ls -la
-          echo "---- add_to_playlist.py (first 60 lines) ----"
-          sed -n '1,60p' add_to_playlist.py
+          echo "Files:"
+          find . -maxdepth 2 -type f -name "*.py" -print
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -39,27 +33,25 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
+        shell: bash
         run: |
           python -m pip install --upgrade pip
           pip install google-api-python-client google-auth google-auth-oauthlib
 
       - name: Restore token.json
+        shell: bash
         run: |
           echo "${{ secrets.YT_TOKEN_B64 }}" | tr -d '\n' | base64 --decode > token.json
           python -c "import json; json.load(open('token.json')); print('✅ token.json OK')"
 
-      - name: Show script line counts (sanity check)
-        run: |
-          echo "Lines in run_playlist.py:"; wc -l run_playlist.py || true
-          echo "Lines in add_to_playlist.py:"; wc -l add_to_playlist.py || true
-          echo "Files:"; ls -la
-
       - name: Syntax check
+        shell: bash
         run: |
           python -m py_compile run_playlist.py
 
       - name: Run script
         env:
           PLAYLIST_ID: ${{ secrets.PLAYLIST_ID }}
+        shell: bash
         run: |
           python run_playlist.py
