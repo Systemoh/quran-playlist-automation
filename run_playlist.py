@@ -10,86 +10,16 @@ from google.auth.transport.requests import Request
 
 SCOPES = ["https://www.googleapis.com/auth/youtube.force-ssl"]
 
+# ===== DAILY TARGET =====
+VIDEOS_PER_RUN = 10
+
 # Minimum duration to accept (minutes)
 MIN_DURATION_MINUTES = 15
 
 # Search tuning
-MAX_SEARCH_RESULTS = 25          # results per search call
-MAX_CANDIDATES_TO_CHECK = 30     # cap to avoid long runs
-
-RECITERS = [
-    # Haramain / Saudi
-    "Abdul Rahman Al-Sudais",
-    "Saud Al-Shuraim",
-    "Maher Al Muaiqly",
-    "Abdullah Awad Al-Juhany",
-    "Yasser Al-Dosari",
-    "Bandar Baleela",
-
-    # Popular international
-    "Mishary Rashid Alafasy",
-    "Saad Al Ghamdi",
-    "Abdul Basit Abdus Samad",
-    "Mahmoud Khalil Al-Husary",
-    "Mohamed Siddiq El Minshawi",
-    "Mustafa Ismail",
-    "Nasser Al Qatami",
-    "Ahmed Al Ajmi",
-    "Hani Ar-Rifai",
-    "Ali Jaber",
-
-    # Modern / younger audience
-    "Omar Hisham Al Arabi",
-    "Islam Sobhi",
-    "Hassan Saleh",
-    "Idris Abkar",
-    "Fares Abbad",
-
-    # Calm / slow style
-    "Salah Bukhatir",
-    "Muhammad Luhaidan",
-    "Abdullah Basfar",
-]
-
-
-# Broad topics
-TOPICS = [
-    # General
-    "quran recitation",
-    "holy quran full recitation",
-    "beautiful quran recitation",
-    "quran tilawat",
-
-    # Long-form / night listening
-    "quran recitation for sleep",
-    "quran recitation for relaxation",
-    "calm quran recitation",
-    "slow quran recitation",
-
-    # Surah-based (high engagement)
-    "surah al baqarah",
-    "surah al kahf",
-    "surah yasin",
-    "surah ar rahman",
-    "surah al waqiah",
-    "surah maryam",
-    "surah al mulk",
-    "surah al anbiya",
-
-    # Juz / structured
-    "juz amma recitation",
-    "juz tabarak recitation",
-
-    # Emotional / spiritual
-    "emotional quran recitation",
-    "beautiful voice quran",
-    "heart touching quran recitation",
-
-    # Ramadan / night prayers
-    "taraweeh recitation",
-    "qiyam ul layl recitation",
-]
-
+MAX_SEARCH_RESULTS = 25
+MAX_CANDIDATES_TO_CHECK = 60   # per search query
+MAX_TOTAL_ATTEMPTS = 40        # overall attempts to find enough videos
 
 # Avoid low-quality / shorts / edits
 BAD_TITLE_PATTERNS = [
@@ -106,6 +36,69 @@ BAD_TITLE_PATTERNS = [
     r"\b1-?11\b",
 ]
 
+RECITERS = [
+    # Haramain / Saudi
+    "Abdul Rahman Al-Sudais",
+    "Saud Al-Shuraim",
+    "Maher Al Muaiqly",
+    "Abdullah Awad Al-Juhany",
+    "Yasser Al-Dosari",
+    "Bandar Baleela",
+    # Popular international
+    "Mishary Rashid Alafasy",
+    "Saad Al Ghamdi",
+    "Abdul Basit Abdus Samad",
+    "Mahmoud Khalil Al-Husary",
+    "Mohamed Siddiq El Minshawi",
+    "Mustafa Ismail",
+    "Nasser Al Qatami",
+    "Ahmed Al Ajmi",
+    "Hani Ar-Rifai",
+    "Ali Jaber",
+    # Modern / younger audience
+    "Omar Hisham Al Arabi",
+    "Islam Sobhi",
+    "Hassan Saleh",
+    "Idris Abkar",
+    "Fares Abbad",
+    # Calm / slow style
+    "Salah Bukhatir",
+    "Muhammad Luhaidan",
+    "Abdullah Basfar",
+]
+
+TOPICS = [
+    # General
+    "quran recitation",
+    "holy quran full recitation",
+    "beautiful quran recitation",
+    "quran tilawat",
+    # Long-form / listening
+    "quran recitation for sleep",
+    "quran recitation for relaxation",
+    "calm quran recitation",
+    "slow quran recitation",
+    # Surah-based
+    "surah al baqarah",
+    "surah al kahf",
+    "surah yasin",
+    "surah ar rahman",
+    "surah al waqiah",
+    "surah maryam",
+    "surah al mulk",
+    "surah al anbiya",
+    # Juz / structured
+    "juz amma recitation",
+    "juz tabarak recitation",
+    # Emotional / spiritual
+    "emotional quran recitation",
+    "beautiful voice quran",
+    "heart touching quran recitation",
+    # Ramadan / night prayers
+    "taraweeh recitation",
+    "qiyam ul layl recitation",
+]
+
 
 def load_youtube() -> Any:
     creds = Credentials.from_authorized_user_file("token.json", SCOPES)
@@ -115,12 +108,10 @@ def load_youtube() -> Any:
 
 
 def is_bad_title(title: str) -> bool:
-    t = title.lower()
-    return any(re.search(p, t, flags=re.IGNORECASE) for p in BAD_TITLE_PATTERNS)
+    return any(re.search(p, title, flags=re.IGNORECASE) for p in BAD_TITLE_PATTERNS)
 
 
 def playlist_video_ids(yt: Any, playlist_id: str) -> Set[str]:
-    """Fetch all videoIds already in the playlist (to avoid duplicates)."""
     ids: Set[str] = set()
     page_token = None
     while True:
@@ -143,7 +134,6 @@ def playlist_video_ids(yt: Any, playlist_id: str) -> Set[str]:
 
 
 def video_duration_minutes(yt: Any, video_id: str) -> Optional[int]:
-    """Return duration minutes if accessible, otherwise None."""
     resp = yt.videos().list(part="contentDetails,status", id=video_id, maxResults=1).execute()
     items = resp.get("items", [])
     if not items:
@@ -153,7 +143,6 @@ def video_duration_minutes(yt: Any, video_id: str) -> Optional[int]:
     if status.get("privacyStatus") == "private":
         return None
 
-    # Parse ISO 8601 duration (PT#H#M#S)
     dur = items[0].get("contentDetails", {}).get("duration", "")
     m = re.fullmatch(r"PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?", dur)
     if not m:
@@ -166,7 +155,6 @@ def video_duration_minutes(yt: Any, video_id: str) -> Optional[int]:
 
 
 def search_candidates(yt: Any, query: str) -> List[Tuple[str, str]]:
-    """Return list of (videoId, title) from search results."""
     resp = yt.search().list(
         part="snippet",
         q=query,
@@ -184,46 +172,6 @@ def search_candidates(yt: Any, query: str) -> List[Tuple[str, str]]:
     return out
 
 
-def pick_video_to_add(
-    yt: Any,
-    existing_ids: Set[str],
-) -> Optional[Tuple[str, str, int]]:
-    """
-    Choose a good new video (id, title, minutes).
-    Strategy: random reciter + random topic -> search -> filter.
-    """
-    reciter = random.choice(RECITERS)
-    topic = random.choice(TOPICS)
-    query = f"{reciter} {topic}"
-    print(f"🔎 Search query: {query}")
-
-    candidates = search_candidates(yt, query)
-
-    # Shuffle to diversify results
-    random.shuffle(candidates)
-
-    checked = 0
-    for vid, title in candidates:
-        if checked >= MAX_CANDIDATES_TO_CHECK:
-            break
-        checked += 1
-
-        if vid in existing_ids:
-            continue
-        if is_bad_title(title):
-            continue
-
-        mins = video_duration_minutes(yt, vid)
-        if mins is None:
-            continue
-        if mins < MIN_DURATION_MINUTES:
-            continue
-
-        return (vid, title, mins)
-
-    return None
-
-
 def add_to_playlist(yt: Any, playlist_id: str, video_id: str) -> None:
     yt.playlistItems().insert(
         part="snippet",
@@ -236,6 +184,41 @@ def add_to_playlist(yt: Any, playlist_id: str, video_id: str) -> None:
     ).execute()
 
 
+def pick_one_new_video(
+    yt: Any,
+    existing: Set[str],
+    picked_this_run: Set[str],
+) -> Optional[Tuple[str, str, int, str]]:
+    """Return (video_id, title, minutes, query_used) or None."""
+    reciter = random.choice(RECITERS)
+    topic = random.choice(TOPICS)
+    query = f"{reciter} {topic}"
+
+    candidates = search_candidates(yt, query)
+    random.shuffle(candidates)
+
+    checked = 0
+    for vid, title in candidates:
+        if checked >= MAX_CANDIDATES_TO_CHECK:
+            break
+        checked += 1
+
+        if vid in existing or vid in picked_this_run:
+            continue
+        if is_bad_title(title):
+            continue
+
+        mins = video_duration_minutes(yt, vid)
+        if mins is None:
+            continue
+        if mins < MIN_DURATION_MINUTES:
+            continue
+
+        return vid, title, mins, query
+
+    return None
+
+
 def main() -> None:
     playlist_id = os.getenv("PLAYLIST_ID")
     if not playlist_id:
@@ -243,36 +226,51 @@ def main() -> None:
 
     yt = load_youtube()
 
-    # Prove which channel is authenticated
     me = yt.channels().list(part="snippet", mine=True).execute()
     channel_title = me["items"][0]["snippet"]["title"] if me.get("items") else "UNKNOWN"
     print("✅ Authenticated channel:", channel_title)
     print("📌 Target PLAYLIST_ID:", playlist_id)
 
-    # Load existing playlist ids
     existing = playlist_video_ids(yt, playlist_id)
     print(f"📚 Playlist currently contains {len(existing)} videos")
 
-    pick = pick_video_to_add(yt, existing)
-    if not pick:
-        print("⚠️ No suitable new video found in this run. (Try again later)")
-        return
+    added = 0
+    attempts = 0
+    picked_this_run: Set[str] = set()
 
-    video_id, title, mins = pick
-    print(f"🎯 Selected: {title} ({mins} min) — {video_id}")
+    while added < VIDEOS_PER_RUN and attempts < MAX_TOTAL_ATTEMPTS:
+        attempts += 1
 
-    try:
-        add_to_playlist(yt, playlist_id, video_id)
-        print("✅ Added to playlist successfully.")
-    except HttpError as e:
-        # Handle the specific "videoNotFound" gracefully by skipping instead of killing everything
-        msg = str(e)
-        if "videoNotFound" in msg or "Video not found" in msg:
-            print(f"⚠️ YouTube says video not found (skipping): {video_id}")
-            return
-        print("❌ YouTube API error while inserting into playlist.")
-        print(e)
-        raise
+        pick = pick_one_new_video(yt, existing, picked_this_run)
+        if not pick:
+            continue
+
+        video_id, title, mins, query = pick
+        print(f"🎯 Candidate {added+1}/{VIDEOS_PER_RUN}: {title} ({mins} min) — {video_id}")
+        print(f"   via: {query}")
+
+        try:
+            add_to_playlist(yt, playlist_id, video_id)
+            print("✅ Added.")
+            added += 1
+            picked_this_run.add(video_id)
+            existing.add(video_id)  # so we don't pick it again
+        except HttpError as e:
+            msg = str(e)
+            # Skip known "not usable" cases without failing the workflow
+            if "videoNotFound" in msg or "Video not found" in msg:
+                print(f"⚠️ Skipping (videoNotFound): {video_id}")
+                picked_this_run.add(video_id)
+                continue
+            if "quotaExceeded" in msg or "Quota exceeded" in msg:
+                print("⚠️ Quota exceeded. Stopping early for today.")
+                break
+
+            print("❌ YouTube API error while inserting into playlist.")
+            print(e)
+            raise
+
+    print(f"✅ Done. Added {added}/{VIDEOS_PER_RUN} videos (attempts={attempts}).")
 
 
 if __name__ == "__main__":
